@@ -89,10 +89,14 @@ class NotificationHelper(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun showNoteNotification(note: NoteEntity): Int {
         // notificationId > 0 且在 usedIds 中 → 复用（更新现有通知）
-        // 否则 → 生成新 ID（隐藏后恢复等场景）
+        // 否则 → 生成新 ID 并取消旧通知（重启后旧通知仍残留在通知栏）
         val id = if (note.notificationId > 0 && usedIds.contains(note.notificationId)) {
             note.notificationId
         } else {
+            if (note.notificationId > 0) {
+                context.getSystemService(NotificationManager::class.java)
+                    .cancel(note.notificationId)
+            }
             generateNotificationId()
         }
 
@@ -152,9 +156,17 @@ class NotificationHelper(private val context: Context) {
         if (isRestoring) return
         isRestoring = true
         try {
+            // 先清空频道所有通知，再重建 —— 彻底消灭残留
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.cancelAll()
+
             val notes = (context.applicationContext as NotesApplication).repository.getVisibleNotes()
+            // 重建 usedIds，确保 ID 正确复用
+            usedIds.clear()
             for (n in notes) {
-                // 复用已有 notificationId，notify 同一 ID 只会更新，不会重复
+                if (n.notificationId > 0) usedIds.add(n.notificationId)
+            }
+            for (n in notes) {
                 showNoteNotification(n)
             }
             updateGroupSummary(notes.size)
